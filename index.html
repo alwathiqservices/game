@@ -1,0 +1,633 @@
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+#gameRoot {
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+  direction: rtl;
+  background: #0a1628;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+  min-height: 520px;
+}
+#gameCanvas { display: block; width: 100%; }
+#ui {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+}
+#notifBar {
+  position: absolute; top: 0; left: 0; right: 0;
+  background: rgba(255,165,0,0.92);
+  color: #1a0a00;
+  font-weight: 700; font-size: 13px;
+  padding: 6px 16px;
+  text-align: center;
+  transform: translateY(-100%);
+  transition: transform 0.35s ease;
+  pointer-events: none;
+  border-radius: 0 0 8px 8px;
+  z-index: 20;
+}
+#notifBar.show { transform: translateY(0); }
+#hud {
+  position: absolute; top: 40px; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 14px;
+  pointer-events: none;
+}
+.hud-glass {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 10px;
+  padding: 5px 12px;
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+#hearts { font-size: 17px; letter-spacing: 2px; }
+#scoreVal, #ordersVal { font-size: 15px; }
+#speedBadge {
+  position: absolute; top: 90px; right: 14px;
+  background: rgba(255,200,0,0.18);
+  border: 1px solid rgba(255,200,0,0.5);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: #ffd700;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.4s;
+  pointer-events: none;
+}
+#overlay {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: rgba(10,22,40,0.88);
+  border-radius: 12px;
+  color: #fff;
+  pointer-events: all;
+  z-index: 30;
+}
+#overlay h1 { font-size: 26px; font-weight: 800; margin-bottom: 6px; color: #ffd700; }
+#overlay p { font-size: 14px; color: #aac; margin-bottom: 18px; text-align: center; max-width: 280px; line-height: 1.6; }
+#overlay .stars { font-size: 28px; margin: 8px 0 14px; letter-spacing: 4px; }
+#overlay .stats { font-size: 13px; color: #ccd; margin-bottom: 16px; }
+#startBtn {
+  background: linear-gradient(135deg, #f90 0%, #e55 100%);
+  color: #fff; font-weight: 800; font-size: 15px;
+  border: none; border-radius: 10px;
+  padding: 11px 36px; cursor: pointer;
+  pointer-events: all;
+  box-shadow: 0 4px 18px rgba(255,120,0,0.4);
+  transition: transform 0.1s;
+}
+#startBtn:hover { transform: scale(1.04); }
+#powerupBar {
+  position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%);
+  background: rgba(255,215,0,0.2);
+  border: 1px solid rgba(255,215,0,0.5);
+  border-radius: 20px; padding: 3px 14px;
+  color: #ffd700; font-size: 12px; font-weight: 700;
+  opacity: 0; transition: opacity 0.4s;
+  pointer-events: none;
+}
+#ctrlHint {
+  position: absolute; bottom: 8px; left: 0; right: 0;
+  text-align: center; color: rgba(255,255,255,0.35);
+  font-size: 11px; pointer-events: none;
+}
+</style>
+
+<div id="gameRoot">
+  <canvas id="gameCanvas" width="680" height="480"></canvas>
+  <div id="ui">
+    <div id="notifBar"></div>
+    <div id="hud">
+      <div class="hud-glass"><span id="hearts">❤️❤️❤️</span></div>
+      <div class="hud-glass">⭐ طلبات: <span id="ordersVal">0</span></div>
+      <div class="hud-glass">نقاط: <span id="scoreVal">0</span></div>
+    </div>
+    <div id="speedBadge">⚡ تُرْبُو الواثق!</div>
+    <div id="powerupBar">🛡️ درع نشيط!</div>
+    <div id="overlay">
+      <h1>🛵 الواثق فود</h1>
+      <p>وصّل الطلبات واتجنب العوائق!<br>مو بس سرعة — دقة وشطارة!</p>
+      <div id="startBtn" onclick="startGame()">🚀 ابدأ اللعبة</div>
+    </div>
+    <div id="ctrlHint">اضغط سهم أعلى / أسفل أو اسحب للأعلى والأسفل</div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 680, H = 480;
+
+const LANE_Y = [130, 230, 330, 430];
+const GROUND_Y = H - 60;
+const ROAD_TOP = 80;
+
+let state, raf;
+
+const NOTIFS = [
+  'طلب جديد من حي النزال! 📦', 'عاشت إيدك! العميل سعيد 😊',
+  'انتبه! ازدحام مروري أمامك 🚗', 'الواثق ما يتأخر! سبع والله ⚡',
+  'دربك أخضر يا بطل 🌟', 'طلب عاجل من الكرادة! 🏃',
+  'زبون جديد من المنصور! 📍', 'سرعة يا ريس! الأكل يبرد 🔥'
+];
+
+function initState() {
+  return {
+    running: false, over: false,
+    bikeY: LANE_Y[1], targetY: LANE_Y[1],
+    bikeX: 90,
+    hp: 3, score: 0, orders: 0, time: 0,
+    frameCount: 0, lastNotif: 0,
+    invincible: 0, shield: false, turbo: false,
+    turboCooldown: 0, shieldCooldown: 0,
+    obstacles: [], powerups: [],
+    bgLayers: initBG(),
+    smokeParticles: [],
+    explosions: [],
+    diffLevel: 1,
+    speedMult: 1,
+    pendingLane: -1,
+    touchStartY: 0,
+  };
+}
+
+function initBG() {
+  return {
+    buildings: Array.from({length: 8}, (_, i) => ({
+      x: i * 110, w: 60 + Math.random()*50, h: 60+Math.random()*80,
+      color: `hsl(${210+i*10},${30+i*5}%,${18+i*3}%)`
+    })),
+    clouds: Array.from({length: 4}, (_, i) => ({x: i*200, y: 20+i*10, w: 80+i*20})),
+    streetLights: [120, 320, 520],
+    roadStripes: Array.from({length: 12}, (_, i) => ({x: i * 70})),
+  };
+}
+
+function startGame() {
+  state = initState();
+  state.running = true;
+  document.getElementById('overlay').style.display = 'none';
+  updateHUD();
+  if (raf) cancelAnimationFrame(raf);
+  loop();
+  scheduleNotif();
+}
+
+function loop() {
+  if (!state.running) return;
+  update();
+  render();
+  raf = requestAnimationFrame(loop);
+}
+
+function update() {
+  const s = state;
+  s.frameCount++;
+  s.time += 1/60;
+
+  // Difficulty
+  s.diffLevel = 1 + Math.floor(s.time / 15);
+  s.speedMult = 1 + s.time * 0.025 + (s.turbo ? 1.5 : 0);
+
+  // Smooth bike movement
+  s.bikeY += (s.targetY - s.bikeY) * 0.14;
+
+  // Invincibility countdown
+  if (s.invincible > 0) s.invincible--;
+  if (s.turboCooldown > 0) { s.turboCooldown--; if (s.turboCooldown === 0) s.turbo = false; updatePowerupBar(); }
+  if (s.shieldCooldown > 0) { s.shieldCooldown--; if (s.shieldCooldown === 0) s.shield = false; updatePowerupBar(); }
+
+  // Score per second
+  if (s.frameCount % 30 === 0) { s.score += s.diffLevel; updateHUD(); }
+
+  // Move BG
+  const spd = s.speedMult * 2.2;
+  for (let b of s.bgLayers.buildings) { b.x -= spd * 0.4; if (b.x < -120) { b.x = W + 20; b.h = 60+Math.random()*80; } }
+  for (let c of s.bgLayers.clouds) { c.x -= spd * 0.15; if (c.x < -100) c.x = W + 50; }
+  for (let rs of s.bgLayers.roadStripes) { rs.x -= spd * 1.0; if (rs.x < -60) rs.x = W + 10; }
+
+  // Spawn obstacles
+  const spawnRate = Math.max(50 - s.diffLevel * 4, 22);
+  if (s.frameCount % spawnRate === 0) spawnObstacle();
+
+  // Spawn powerups
+  const puRate = 220 - s.diffLevel * 10;
+  if (s.frameCount % Math.max(puRate, 120) === 0) spawnPowerup();
+
+  // Move obstacles
+  for (let ob of s.obstacles) {
+    ob.x -= spd * (ob.fast ? 2.2 : 1.1);
+    if (ob.type === 'cat') { ob.phase = (ob.phase||0) + 0.12; ob.y = ob.baseY + Math.sin(ob.phase)*18; }
+  }
+  s.obstacles = s.obstacles.filter(ob => ob.x > -80);
+
+  // Move powerups
+  for (let pu of s.powerups) { pu.x -= spd * 0.9; pu.phase = (pu.phase||0)+0.08; }
+  s.powerups = s.powerups.filter(pu => pu.x > -50);
+
+  // Collision detection
+  if (s.invincible === 0) {
+    for (let i = s.obstacles.length - 1; i >= 0; i--) {
+      const ob = s.obstacles[i];
+      if (Math.abs(ob.x - s.bikeX) < 36 && Math.abs(ob.y - s.bikeY) < 30) {
+        if (s.shield) { s.shield = false; s.shieldCooldown = 0; s.obstacles.splice(i,1); updatePowerupBar(); showNotif('🛡️ الدرع وقاك! ما صارلك شي'); }
+        else { hitBike(ob.x, ob.y); s.obstacles.splice(i,1); }
+      }
+    }
+  }
+
+  // Powerup collection
+  for (let i = s.powerups.length - 1; i >= 0; i--) {
+    const pu = s.powerups[i];
+    if (Math.abs(pu.x - s.bikeX) < 30 && Math.abs(pu.y - s.bikeY) < 28) {
+      collectPowerup(pu);
+      s.powerups.splice(i,1);
+    }
+  }
+
+  // Smoke particles
+  if (s.frameCount % 3 === 0) {
+    s.smokeParticles.push({ x: s.bikeX - 28, y: s.bikeY + 8, r: 5+Math.random()*4, life: 28, vx: -1.5 - Math.random(), vy: (Math.random()-0.5)*0.8, color: s.turbo ? '#ff8800' : '#aabbcc' });
+  }
+  for (let p of s.smokeParticles) { p.x += p.vx * s.speedMult; p.y += p.vy; p.r *= 0.93; p.life--; }
+  s.smokeParticles = s.smokeParticles.filter(p => p.life > 0);
+
+  // Explosions
+  for (let ex of s.explosions) { ex.life--; ex.r += 1.5; }
+  s.explosions = s.explosions.filter(e => e.life > 0);
+
+  // Speed badge
+  document.getElementById('speedBadge').style.opacity = s.turbo ? '1' : '0';
+}
+
+function spawnObstacle() {
+  const s = state;
+  const types = ['car', 'car', 'car', 'hole'];
+  if (s.diffLevel >= 2) types.push('cat');
+  if (s.diffLevel >= 3) { types.push('car'); types.push('truck'); }
+  const type = types[Math.floor(Math.random()*types.length)];
+  const lane = Math.floor(Math.random() * LANE_Y.length);
+  s.obstacles.push({ type, x: W + 40, y: LANE_Y[lane], baseY: LANE_Y[lane], fast: Math.random() < 0.2 + s.diffLevel*0.05, phase: 0 });
+}
+
+function spawnPowerup() {
+  const types = ['turbo', 'shield', 'order'];
+  const type = types[Math.floor(Math.random()*types.length)];
+  const lane = Math.floor(Math.random() * LANE_Y.length);
+  state.powerups.push({ type, x: W + 30, y: LANE_Y[lane], phase: 0 });
+}
+
+function hitBike(ox, oy) {
+  const s = state;
+  s.hp--;
+  s.invincible = 90;
+  s.explosions.push({ x: ox, y: oy, r: 10, life: 22, color: '#ff4400' });
+  updateHUD();
+  const msgs = ['آي! اصطدمت بشي 😬', 'انتبه! الطريق مو ملكك وحدك 😅', 'آووو! اشوف الطريق ويك! 😤'];
+  showNotif(msgs[Math.floor(Math.random()*msgs.length)]);
+  if (s.hp <= 0) endGame();
+}
+
+function collectPowerup(pu) {
+  const s = state;
+  if (pu.type === 'turbo') { s.turbo = true; s.turboCooldown = 200; updatePowerupBar(); showNotif('⚡ تُرْبُو الواثق! سبع والله!'); }
+  else if (pu.type === 'shield') { s.shield = true; s.shieldCooldown = 250; updatePowerupBar(); showNotif('🛡️ درع الحماية نشيط! لا أحد يوقفك!'); }
+  else if (pu.type === 'order') { s.orders++; s.score += 120; updateHUD(); showNotif('📦 طلب موصّل! زبون سعيد جداً 😊'); }
+}
+
+function updatePowerupBar() {
+  const bar = document.getElementById('powerupBar');
+  const s = state;
+  if (s.shield && s.turbo) { bar.style.opacity = '1'; bar.textContent = '🛡️ درع + ⚡ تُرْبُو!'; }
+  else if (s.shield) { bar.style.opacity = '1'; bar.textContent = '🛡️ الدرع نشيط!'; }
+  else if (s.turbo) { bar.style.opacity = '1'; bar.textContent = '⚡ تُرْبُو الواثق!'; }
+  else { bar.style.opacity = '0'; }
+}
+
+function updateHUD() {
+  const s = state;
+  const heartStr = ['','❤️','❤️❤️','❤️❤️❤️'][s.hp] || '';
+  const emptyStr = ['💔💔💔','💔💔','💔',''][s.hp] || '💔💔💔';
+  document.getElementById('hearts').textContent = heartStr + emptyStr;
+  document.getElementById('scoreVal').textContent = s.score;
+  document.getElementById('ordersVal').textContent = s.orders;
+}
+
+let notifTimer;
+function showNotif(msg) {
+  const bar = document.getElementById('notifBar');
+  bar.textContent = msg; bar.classList.add('show');
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => bar.classList.remove('show'), 2600);
+}
+function scheduleNotif() {
+  if (!state || !state.running) return;
+  const delay = 5000 + Math.random()*6000;
+  setTimeout(() => { if (state && state.running) { showNotif(NOTIFS[Math.floor(Math.random()*NOTIFS.length)]); scheduleNotif(); } }, delay);
+}
+
+function endGame() {
+  const s = state;
+  s.running = false; s.over = true;
+  const starCount = s.orders >= 10 ? 3 : s.orders >= 5 ? 2 : s.orders >= 2 ? 1 : 0;
+  const starStr = '⭐'.repeat(starCount) + '☆'.repeat(3-starCount);
+  const msgs = ['بدي تحاول مرة ثانية؟ 😅', 'ما بأس! اللعبة صعبة 💪', 'ليش ما وصّلت أكثر؟ 😂', 'سبع والله الواثق! 🏆'];
+  const ov = document.getElementById('overlay');
+  ov.innerHTML = `<h1>🏁 انتهت الجولة!</h1>
+    <div class="stars">${starStr}</div>
+    <div class="stats">نقاط: ${s.score} | طلبات موصّلة: ${s.orders}<br>مستوى الصعوبة وصل: ${s.diffLevel}</div>
+    <p>${msgs[Math.floor(Math.random()*msgs.length)]}</p>
+    <div id="startBtn" onclick="startGame()">🔄 جولة جديدة</div>`;
+  ov.style.display = 'flex';
+  cancelAnimationFrame(raf);
+  render();
+}
+
+// ── RENDERING ──
+function render() {
+  const s = state;
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky();
+  drawBuildings();
+  drawClouds();
+  drawRoad();
+  drawStripes();
+  drawStreetLights();
+  drawSmokeParticles();
+  drawObstacles();
+  drawPowerups();
+  drawBike();
+  drawExplosions();
+}
+
+function drawSky() {
+  const grad = ctx.createLinearGradient(0,0,0,ROAD_TOP+20);
+  grad.addColorStop(0,'#0a1628'); grad.addColorStop(1,'#1a2a4a');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,W,ROAD_TOP+20);
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  for (let i=0;i<30;i++) { const sx=(i*73+11)%W, sy=(i*37+5)%(ROAD_TOP-10); ctx.beginPath(); ctx.arc(sx,sy,0.8,0,Math.PI*2); ctx.fill(); }
+}
+
+function drawBuildings() {
+  for (let b of state.bgLayers.buildings) {
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x, ROAD_TOP - b.h, b.w, b.h);
+    // Windows
+    ctx.fillStyle = 'rgba(255,230,100,0.5)';
+    for (let wy=8; wy<b.h-10; wy+=16) for (let wx=6; wx<b.w-6; wx+=14) {
+      if ((wy+wx)%3!==0) { ctx.fillRect(b.x+wx, ROAD_TOP-b.h+wy, 6, 7); }
+    }
+  }
+}
+
+function drawClouds() {
+  ctx.fillStyle = 'rgba(200,220,255,0.12)';
+  for (let c of state.bgLayers.clouds) {
+    ctx.beginPath(); ctx.ellipse(c.x, c.y, c.w/2, 12, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(c.x+20, c.y-6, c.w/3, 10, 0, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function drawRoad() {
+  // Road surface
+  ctx.fillStyle = '#1e2535';
+  ctx.fillRect(0, ROAD_TOP, W, H - ROAD_TOP);
+  // Road edge lines
+  ctx.strokeStyle = '#f8a800'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, ROAD_TOP+2); ctx.lineTo(W, ROAD_TOP+2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, H-10); ctx.lineTo(W, H-10); ctx.stroke();
+  // Lane markers
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+  for (let ly of [LANE_Y[0]+50, LANE_Y[1]+50, LANE_Y[2]+50]) {
+    ctx.setLineDash([18,14]);
+    ctx.beginPath(); ctx.moveTo(0,ly); ctx.lineTo(W,ly); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+function drawStripes() {
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  for (let rs of state.bgLayers.roadStripes) {
+    ctx.fillRect(rs.x, H-40, 40, 5);
+  }
+}
+
+function drawStreetLights() {
+  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 3;
+  for (let lx of state.bgLayers.streetLights) {
+    ctx.beginPath(); ctx.moveTo(lx, ROAD_TOP); ctx.lineTo(lx, ROAD_TOP+50); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lx, ROAD_TOP+5); ctx.lineTo(lx+28, ROAD_TOP+5); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,230,80,0.7)';
+    ctx.beginPath(); ctx.arc(lx+28, ROAD_TOP+5, 5, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function drawSmokeParticles() {
+  for (let p of state.smokeParticles) {
+    const alpha = p.life / 28 * 0.45;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawObstacles() {
+  for (let ob of state.obstacles) {
+    const x = ob.x, y = ob.y;
+    if (ob.type === 'car') drawCar(x, y, ob.fast ? '#e63946' : '#457b9d', ob.fast);
+    else if (ob.type === 'truck') drawTruck(x, y);
+    else if (ob.type === 'hole') drawHole(x, y);
+    else if (ob.type === 'cat') drawCat(x, y);
+  }
+}
+
+function drawCar(x, y, color, fast) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.roundRect(-28, -15, 56, 30, 6); ctx.fill();
+  ctx.fillStyle = 'rgba(150,220,255,0.7)';
+  ctx.fillRect(-18, -12, 15, 10); ctx.fillRect(4, -12, 15, 10);
+  ctx.fillStyle = '#ff4400';
+  ctx.beginPath(); ctx.arc(-22, 16, 5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(22, 16, 5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#ff0';
+  ctx.beginPath(); ctx.arc(-22, -17, 4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(22, -17, 4, 0, Math.PI*2); ctx.fill();
+  if (fast) { ctx.fillStyle='rgba(255,100,0,0.5)'; for(let i=1;i<=3;i++){ctx.fillRect(28+i*9,-3,6,6);} }
+  ctx.restore();
+}
+
+function drawTruck(x, y) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = '#6a3d9a';
+  ctx.beginPath(); ctx.roundRect(-40, -20, 80, 40, 5); ctx.fill();
+  ctx.fillStyle = '#8b5cf6';
+  ctx.fillRect(-40, -20, 30, 40);
+  ctx.fillStyle = 'rgba(150,220,255,0.6)';
+  ctx.fillRect(-36, -16, 18, 12);
+  ctx.fillStyle = '#fff'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
+  ctx.fillText('ALWATHIQ', 12, 5);
+  ctx.fillStyle = '#ff4400';
+  ctx.beginPath(); ctx.arc(-32, 21, 6, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(32, 21, 6, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawHole(x, y) {
+  ctx.save(); ctx.translate(x, y);
+  const grad = ctx.createRadialGradient(0, 5, 2, 0, 5, 22);
+  grad.addColorStop(0,'#000'); grad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.ellipse(0, 5, 22, 12, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle='rgba(255,100,0,0.4)';
+  ctx.font='18px Arial'; ctx.textAlign='center';
+  ctx.fillText('⚠', 0, -8);
+  ctx.restore();
+}
+
+function drawCat(x, y) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = '#888';
+  ctx.beginPath(); ctx.ellipse(0, 4, 14, 10, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, -6, 9, 8, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='#aaa';
+  ctx.beginPath(); ctx.moveTo(-8,-12); ctx.lineTo(-4,-18); ctx.lineTo(0,-12); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(4,-18); ctx.lineTo(8,-12); ctx.fill();
+  ctx.fillStyle='rgba(100,200,255,0.8)';
+  ctx.beginPath(); ctx.ellipse(-4,-7,3,3,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(4,-7,3,3,0,0,Math.PI*2); ctx.fill();
+  // tail
+  ctx.strokeStyle='#888'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(14,4); ctx.quadraticCurveTo(22,-8,16,-18); ctx.stroke();
+  ctx.restore();
+}
+
+function drawPowerups() {
+  for (let pu of state.powerups) {
+    const bob = Math.sin(pu.phase)*5;
+    ctx.save(); ctx.translate(pu.x, pu.y + bob);
+    const glow = ctx.createRadialGradient(0,0,3,0,0,20);
+    if (pu.type==='turbo') { glow.addColorStop(0,'rgba(255,200,0,0.4)'); glow.addColorStop(1,'transparent'); ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(0,0,20,0,Math.PI*2); ctx.fill(); ctx.font='22px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('⚡',0,0); }
+    else if (pu.type==='shield') { glow.addColorStop(0,'rgba(0,180,255,0.4)'); glow.addColorStop(1,'transparent'); ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(0,0,20,0,Math.PI*2); ctx.fill(); ctx.font='22px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('🛡️',0,0); }
+    else { glow.addColorStop(0,'rgba(255,215,0,0.5)'); glow.addColorStop(1,'transparent'); ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(0,0,22,0,Math.PI*2); ctx.fill(); ctx.font='20px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('📦',0,0); }
+    ctx.restore();
+  }
+}
+
+function drawBike() {
+  const s = state;
+  const x = s.bikeX, y = s.bikeY;
+  const flash = s.invincible > 0 && Math.floor(s.invincible/5)%2===0;
+  if (flash) { ctx.globalAlpha = 0.3; }
+
+  ctx.save(); ctx.translate(x, y);
+
+  // Shield aura
+  if (s.shield) {
+    ctx.strokeStyle = 'rgba(0,180,255,0.6)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, 38, 28, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,180,255,0.2)'; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.ellipse(0, 0, 42, 32, 0, 0, Math.PI*2); ctx.stroke();
+  }
+
+  // Wheels
+  ctx.fillStyle = '#222'; ctx.strokeStyle = '#f90'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(-18, 14, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(18, 14, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+  for (let a=0;a<Math.PI*2;a+=Math.PI/4) {
+    ctx.beginPath(); ctx.moveTo(-18,14); ctx.lineTo(-18+9*Math.cos(a+s.frameCount*0.15), 14+9*Math.sin(a+s.frameCount*0.15)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(18,14); ctx.lineTo(18+9*Math.cos(a-s.frameCount*0.15), 14+9*Math.sin(a-s.frameCount*0.15)); ctx.stroke();
+  }
+
+  // Body frame
+  ctx.strokeStyle = '#f90'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-18,14); ctx.lineTo(0,-4); ctx.lineTo(18,14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-8,-18); ctx.stroke();
+
+  // Engine
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.roundRect(-10, -5, 20, 16, 4); ctx.fill();
+  ctx.fillStyle = '#f90';
+  ctx.beginPath(); ctx.roundRect(-7, -3, 14, 10, 3); ctx.fill();
+
+  // Handlebar
+  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(16, -16); ctx.lineTo(28, -12); ctx.stroke();
+
+  // Delivery box
+  ctx.fillStyle = '#e63946';
+  ctx.beginPath(); ctx.roundRect(-8, -30, 20, 18, 3); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 7px Arial'; ctx.textAlign = 'center';
+  ctx.fillText('واثق', 2, -18);
+
+  // Rider
+  ctx.fillStyle = '#f5c078';
+  ctx.beginPath(); ctx.ellipse(4, -34, 8, 8, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#1d3557';
+  ctx.beginPath(); ctx.roundRect(-4, -44, 16, 12, 3); ctx.fill();
+  ctx.fillStyle = '#f5c078';
+  ctx.beginPath(); ctx.roundRect(14, -36, 6, 14, 3); ctx.fill();
+
+  ctx.restore();
+  if (flash) ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1;
+}
+
+function drawExplosions() {
+  for (let ex of state.explosions) {
+    const a = ex.life / 22;
+    ctx.globalAlpha = a;
+    const grad = ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, ex.r);
+    grad.addColorStop(0,'#fff'); grad.addColorStop(0.3,'#ff8800'); grad.addColorStop(1,'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(ex.x, ex.y, ex.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── INPUT ──
+document.addEventListener('keydown', e => {
+  if (!state || !state.running) return;
+  if (e.key==='ArrowUp') { const i = LANE_Y.indexOf(state.targetY); if(i>0) state.targetY = LANE_Y[i-1]; }
+  if (e.key==='ArrowDown') { const i = LANE_Y.indexOf(state.targetY); if(i<LANE_Y.length-1) state.targetY = LANE_Y[i+1]; }
+  if (e.key==='w'||e.key==='W') { const i = LANE_Y.indexOf(state.targetY); if(i>0) state.targetY = LANE_Y[i-1]; }
+  if (e.key==='s'||e.key==='S') { const i = LANE_Y.indexOf(state.targetY); if(i<LANE_Y.length-1) state.targetY = LANE_Y[i+1]; }
+});
+
+const cvs = document.getElementById('gameCanvas');
+cvs.addEventListener('touchstart', e => { if (!state||!state.running) return; state.touchStartY = e.touches[0].clientY; }, {passive:true});
+cvs.addEventListener('touchend', e => {
+  if (!state||!state.running) return;
+  const dy = e.changedTouches[0].clientY - state.touchStartY;
+  if (Math.abs(dy) < 15) return;
+  const i = LANE_Y.indexOf(state.targetY);
+  if (dy < 0 && i > 0) state.targetY = LANE_Y[i-1];
+  if (dy > 0 && i < LANE_Y.length-1) state.targetY = LANE_Y[i+1];
+}, {passive:true});
+
+cvs.addEventListener('click', e => {
+  if (!state||!state.running) return;
+  const rect = cvs.getBoundingClientRect();
+  const clickY = (e.clientY - rect.top) / rect.height * H;
+  const i = LANE_Y.indexOf(state.targetY);
+  if (clickY < state.bikeY - 30 && i > 0) state.targetY = LANE_Y[i-1];
+  if (clickY > state.bikeY + 30 && i < LANE_Y.length-1) state.targetY = LANE_Y[i+1];
+});
+
+state = initState();
+render();
+</script>
