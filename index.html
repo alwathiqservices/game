@@ -13,11 +13,14 @@
             position: relative;
             width: 100%;
             height: 100%;
-            max-width: 450px; /* قياس ممتاز للهواتف */
+            max-width: 450px;
             box-shadow: 0 0 40px rgba(0, 100, 255, 0.15);
             overflow: hidden;
             user-select: none;
+            transition: transform 0.05s; /* لاجل تأثير الاهتزاز */
         }
+        .shake { transform: translate(5px, 5px) rotate(1deg); }
+        .shake2 { transform: translate(-5px, -5px) rotate(-1deg); }
         
         #gc { display: block; width: 100%; height: 100%; }
         #ui { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
@@ -36,8 +39,7 @@
             border-radius: 10px; padding: 6px 10px;
             font-size: 12px; font-weight: 700; color: #7df;
             white-space: nowrap;
-            backdrop-filter: blur(8px); /* تصميم زجاجي */
-            -webkit-backdrop-filter: blur(8px);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         }
         .tb span { color: #fff; font-size: 13px; margin-right: 4px; }
         
@@ -120,7 +122,7 @@
         .cBtn:active { background: rgba(0, 120, 255, 0.8); transform: scale(0.9); }
 
         #soundBtn {
-            position: absolute; top: 12px; left: 12px; /* تم النقل لليسار لترتيب الشريط */
+            position: absolute; top: 12px; left: 12px;
             background: rgba(0, 40, 120, 0.5);
             border: 1px solid rgba(0, 120, 255, 0.3);
             border-radius: 8px; padding: 6px 10px;
@@ -151,7 +153,7 @@
         </div>
         <div id="overlay">
             <h1>الواثق فود</h1>
-            <div class="sub">النسخة الاحترافية<br>وصّل الطلبات الساخنة واجمع الوقود!</div>
+            <div class="sub">النسخة الاحترافية السريعة<br>وصّل الطلبات الساخنة واجمع الوقود!</div>
             <div id="nameWrap"><input id="nameIn" placeholder="اسمك يا بطل" maxlength="16"/></div>
             <button class="btn" onclick="G.start()">انطلق يا ريس 🛵</button>
         </div>
@@ -175,7 +177,7 @@ function resize(){
     cv.width = W; cv.height = H;
 }
 resize();
-window.addEventListener('resize', resize); // دعم أفضل للشاشات
+window.addEventListener('resize', resize);
 
 const LANE_COUNT = 4;
 function lanes(){
@@ -185,158 +187,160 @@ function lanes(){
 }
 
 /* ═══════════ AUDIO ENGINE ═══════════ */
-class AudioEngine{
-    constructor(){this.ac=null;this.muted=false;this._eng=null;this._engFreq=80;this._ambNodes=[];}
-    _init(){
-        if(this.ac)return;
-        this.ac=new(window.AudioContext||window.webkitAudioContext)();
+class AudioEngine {
+    constructor(){ this.ac = null; this.muted = false; this._eng = null; this._ambNodes = []; }
+    
+    // يجب استدعاء هذه الدالة عند أول نقرة من المستخدم
+    unlock() {
+        if(!this.ac) {
+            this.ac = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if(this.ac.state === 'suspended') {
+            this.ac.resume();
+        }
     }
-    _resume(){if(this.ac&&this.ac.state==='suspended')this.ac.resume();}
 
     startEngine(){
-        this._init();this._resume();
-        if(this._eng)return;
-        const ac=this.ac;
-        const osc=ac.createOscillator();
-        const osc2=ac.createOscillator();
-        const gain=ac.createGain();
-        const filter=ac.createBiquadFilter();
-        osc.type='sawtooth'; osc.frequency.value=90;
-        osc2.type='square'; osc2.frequency.value=45;
-        filter.type='lowpass'; filter.frequency.value=400; filter.Q.value=3;
-        gain.gain.value=this.muted?0:0.06;
+        if(this._eng || this.muted) return;
+        const ac = this.ac;
+        if(!ac) return;
+        const osc = ac.createOscillator();
+        const osc2 = ac.createOscillator();
+        const gain = ac.createGain();
+        const filter = ac.createBiquadFilter();
+        
+        osc.type = 'sawtooth'; osc.frequency.value = 100;
+        osc2.type = 'square'; osc2.frequency.value = 50;
+        filter.type = 'lowpass'; filter.frequency.value = 500; filter.Q.value = 4;
+        
+        // تم رفع صوت المحرك
+        gain.gain.value = 0.12;
+        
         osc.connect(filter); osc2.connect(filter);
         filter.connect(gain); gain.connect(ac.destination);
         osc.start(); osc2.start();
-        this._eng={osc,osc2,gain,filter};
+        this._eng = {osc, osc2, gain, filter};
     }
+
     setEngineSpeed(spd){
-        if(!this._eng||this.muted)return;
-        const f=75+spd*110;
-        this._eng.osc.frequency.setTargetAtTime(f,this.ac.currentTime,0.15);
-        this._eng.osc2.frequency.setTargetAtTime(f/2,this.ac.currentTime,0.15);
+        if(!this._eng || this.muted) return;
+        const f = 80 + spd * 130;
+        this._eng.osc.frequency.setTargetAtTime(f, this.ac.currentTime, 0.1);
+        this._eng.osc2.frequency.setTargetAtTime(f/2, this.ac.currentTime, 0.1);
     }
-    stopEngine(){if(this._eng){this._eng.gain.gain.value=0;this._eng=null;}}
+
+    stopEngine(){ if(this._eng){ this._eng.gain.gain.value = 0; this._eng = null; } }
 
     startAmbient(){
-        this._init();this._resume();
-        if(this._ambNodes.length)return;
-        const ac=this.ac;
-        [[110,0.018],[165,0.012],[220,0.008]].forEach(([f,v])=>{
-            const o=ac.createOscillator(),g=ac.createGain();
-            const del=ac.createDelay(0.4);
-            del.delayTime.value=0.35;
-            const fb=ac.createGain(); fb.gain.value=0.3;
-            o.type='sine'; o.frequency.value=f;
-            g.gain.value=this.muted?0:v;
+        if(this._ambNodes.length || this.muted || !this.ac) return;
+        const ac = this.ac;
+        [[110,0.02],[165,0.015]].forEach(([f,v])=>{
+            const o = ac.createOscillator(), g = ac.createGain();
+            o.type = 'sine'; o.frequency.value = f;
+            g.gain.value = v;
             o.connect(g); g.connect(ac.destination);
-            g.connect(del); del.connect(fb); fb.connect(del); del.connect(ac.destination);
             o.start();
             this._ambNodes.push({o,g});
         });
     }
-    stopAmbient(){this._ambNodes.forEach(n=>{try{n.g.gain.value=0;}catch(e){}});this._ambNodes=[];}
+    stopAmbient(){ this._ambNodes.forEach(n=>{try{n.g.gain.value=0;}catch(e){}}); this._ambNodes=[]; }
 
-    ding(){
-        if(this.muted)return;
-        this._init();this._resume();
-        const ac=this.ac;
-        [[880,0],[1320,0.06],[1760,0.12]].forEach(([f,t])=>{
-            const o=ac.createOscillator(),g=ac.createGain();
-            o.type='sine'; o.frequency.value=f;
-            g.gain.setValueAtTime(0,ac.currentTime+t);
-            g.gain.linearRampToValueAtTime(0.22,ac.currentTime+t+0.02);
-            g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+t+0.55);
+    ding(){ // صوت استلام الطلب صار أوضح وأعلى
+        if(this.muted || !this.ac) return;
+        const ac = this.ac;
+        [[980,0],[1480,0.08],[1960,0.15]].forEach(([f,t])=>{
+            const o = ac.createOscillator(), g = ac.createGain();
+            o.type = 'sine'; o.frequency.value = f;
+            g.gain.setValueAtTime(0, ac.currentTime + t);
+            g.gain.linearRampToValueAtTime(0.4, ac.currentTime + t + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + 0.5);
             o.connect(g); g.connect(ac.destination);
-            o.start(ac.currentTime+t); o.stop(ac.currentTime+t+0.6);
+            o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.6);
         });
     }
 
     warn(){
-        if(this.muted)return;
-        this._init();this._resume();
-        const ac=this.ac;
-        [0,0.16].forEach(t=>{
-            const o=ac.createOscillator(),g=ac.createGain();
-            o.type='square'; o.frequency.value=440;
-            g.gain.setValueAtTime(0.14,ac.currentTime+t);
-            g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+t+0.12);
-            o.connect(g); g.connect(ac.destination);
-            o.start(ac.currentTime+t); o.stop(ac.currentTime+t+0.13);
-        });
+        if(this.muted || !this.ac) return;
+        const ac = this.ac;
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'square'; o.frequency.value = 600;
+        g.gain.setValueAtTime(0.2, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+        o.connect(g); g.connect(ac.destination);
+        o.start(); o.stop(ac.currentTime + 0.16);
     }
 
-    boom(){
-        if(this.muted)return;
-        this._init();this._resume();
-        const ac=this.ac;
-        const buf=ac.createBuffer(1,ac.sampleRate*0.45,ac.sampleRate);
-        const d=buf.getChannelData(0);
-        for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,1.5);
-        const src=ac.createBufferSource(),g=ac.createGain();
-        const filt=ac.createBiquadFilter();
-        filt.type='lowpass'; filt.frequency.value=600;
-        src.buffer=buf; g.gain.value=0.55;
+    boom(){ // صوت الاصطدام صار أقوى
+        if(this.muted || !this.ac) return;
+        const ac = this.ac;
+        const buf = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/d.length, 2);
+        
+        const src = ac.createBufferSource(), g = ac.createGain();
+        const filt = ac.createBiquadFilter();
+        filt.type = 'lowpass'; filt.frequency.value = 800;
+        src.buffer = buf; g.gain.value = 1.5; // أعلى
         src.connect(filt); filt.connect(g); g.connect(ac.destination);
         src.start();
-        const o=ac.createOscillator(),g2=ac.createGain();
-        o.type='sine'; o.frequency.setValueAtTime(180,ac.currentTime);
-        o.frequency.exponentialRampToValueAtTime(40,ac.currentTime+0.35);
-        g2.gain.setValueAtTime(0.45,ac.currentTime);
-        g2.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+0.4);
+        
+        const o = ac.createOscillator(), g2 = ac.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(150, ac.currentTime);
+        o.frequency.exponentialRampToValueAtTime(30, ac.currentTime + 0.4);
+        g2.gain.setValueAtTime(0.8, ac.currentTime);
+        g2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
         o.connect(g2); g2.connect(ac.destination);
-        o.start(); o.stop(ac.currentTime+0.45);
+        o.start(); o.stop(ac.currentTime + 0.45);
     }
 
     fuel(){
-        if(this.muted)return;
-        this._init();this._resume();
-        const ac=this.ac;
-        const o=ac.createOscillator(),g=ac.createGain();
-        o.type='triangle';
-        o.frequency.setValueAtTime(300,ac.currentTime);
-        o.frequency.exponentialRampToValueAtTime(900,ac.currentTime+0.3);
-        g.gain.setValueAtTime(0.18,ac.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+0.35);
+        if(this.muted || !this.ac) return;
+        const ac = this.ac;
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(400, ac.currentTime);
+        o.frequency.exponentialRampToValueAtTime(1200, ac.currentTime + 0.25);
+        g.gain.setValueAtTime(0.3, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
         o.connect(g); g.connect(ac.destination);
-        o.start(); o.stop(ac.currentTime+0.38);
+        o.start(); o.stop(ac.currentTime + 0.35);
     }
 
     toggle(){
-        this.muted=!this.muted;
-        if(this._eng)this._eng.gain.gain.value=this.muted?0:0.06;
-        this._ambNodes.forEach(n=>{n.g.gain.value=this.muted?0:0.015;});
-        document.getElementById('soundBtn').textContent=this.muted?'🔇':'🔊';
+        this.muted = !this.muted;
+        if(this._eng) this._eng.gain.gain.value = this.muted ? 0 : 0.12;
+        this._ambNodes.forEach(n=>{ n.g.gain.value = this.muted ? 0 : 0.02; });
+        document.getElementById('soundBtn').textContent = this.muted ? '🔇' : '🔊';
+        if(!this.muted) this.unlock(); // فتح الصوت إذا كان مقفلاً
     }
 }
 
-/* ═══════════ PARTICLE ═══════════ */
+/* ═══════════ CLASSES (Particle, Obstacle, Powerup) ═══════════ */
 class Particle{
     constructor(x,y,col='#00aaff'){
         this.x=x;this.y=y;
-        this.vx=(Math.random()-0.5)*5;
-        this.vy=-Math.random()*4-1;
-        this.r=2+Math.random()*4;
-        this.life=1;this.decay=0.032+Math.random()*0.04;
+        this.vx=(Math.random()-0.5)*7; // انتشار أسرع
+        this.vy=-Math.random()*5-2;
+        this.r=2+Math.random()*5;
+        this.life=1;this.decay=0.03+Math.random()*0.04;
         this.col=col;
     }
-    update(){this.x+=this.vx;this.y+=this.vy;this.vy+=0.14;this.life-=this.decay;this.r*=0.95;}
+    update(){this.x+=this.vx;this.y+=this.vy;this.vy+=0.2;this.life-=this.decay;this.r*=0.95;}
     draw(c){
         c.save();c.globalAlpha=Math.max(0,this.life);
-        c.shadowBlur=8; c.shadowColor=this.col; // إضافة التوهج
+        c.shadowBlur=10; c.shadowColor=this.col;
         c.fillStyle=this.col;
         c.beginPath();c.arc(this.x,this.y,this.r,0,Math.PI*2);c.fill();c.restore();
     }
 }
 
-/* ═══════════ OBSTACLE ═══════════ */
 class Obstacle{
     constructor(laneY,type){
         this.y=laneY;this.type=type;
         this.x=W+60;this.warned=false;
         this.phase=0;this.baseY=laneY;
     }
-    update(spd){this.x-=spd*(this.type==='fast'?2.4:1.3);this.phase+=0.1;}
+    update(spd){this.x-=spd*(this.type==='fast'?2.8:1.4);this.phase+=0.15;} // أسرع
     get w(){return this.type==='truck'?W*0.16:W*0.11;}
     get h(){return this.type==='hole'?W*0.04:W*0.07;}
     draw(c){
@@ -355,7 +359,7 @@ class Obstacle{
             c.fillStyle='#7799cc';
             c.beginPath();c.moveTo(-7*s,-12*s);c.lineTo(-3*s,-19*s);c.lineTo(0,-12*s);c.fill();
             c.beginPath();c.moveTo(0,-12*s);c.lineTo(3*s,-19*s);c.lineTo(7*s,-12*s);c.fill();
-            c.fillStyle='rgba(0,255,100,0.9)'; // عيون تتوهج
+            c.fillStyle='rgba(0,255,100,0.9)';
             c.shadowBlur=5; c.shadowColor='#0f0';
             c.beginPath();c.ellipse(-3*s,-7*s,2.5*s,2.5*s,0,0,Math.PI*2);c.fill();
             c.beginPath();c.ellipse(3*s,-7*s,2.5*s,2.5*s,0,0,Math.PI*2);c.fill();
@@ -390,26 +394,24 @@ class Obstacle{
     }
 }
 
-/* ═══════════ POWERUP ═══════════ */
 class Powerup{
     constructor(laneY,type){this.y=laneY;this.type=type;this.x=W+40;this.phase=0;}
-    update(spd){this.x-=spd*0.85;this.phase+=0.07;}
+    update(spd){this.x-=spd*0.9;this.phase+=0.1;}
     draw(c){
-        const bob=Math.sin(this.phase)*6;
+        const bob=Math.sin(this.phase)*8;
         c.save();c.translate(this.x,this.y+bob);
         const sc=Math.min(W/380, 1.2);
         const r=22*sc;
         const cols={order:'rgba(0,200,255,0.7)',fuel:'rgba(0,255,100,0.7)',shield:'rgba(100,100,255,0.7)',turbo:'rgba(255,200,0,0.7)'};
         
-        // تأثير سينمائي للطلبات
-        c.shadowBlur = 20;
+        c.shadowBlur = 25;
         c.shadowColor = cols[this.type] || 'rgba(0,200,255,0.7)';
         
         const g=c.createRadialGradient(0,0,2,0,0,r);
         g.addColorStop(0,cols[this.type]||'rgba(0,200,255,0.5)');g.addColorStop(1,'transparent');
         c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,Math.PI*2);c.fill();
         
-        c.shadowBlur = 0; // إعادة التعيين
+        c.shadowBlur = 0;
         const icons={order:'📦',fuel:'⛽',shield:'🛡️',turbo:'⚡'};
         c.font=`${20*sc}px Arial`;c.textAlign='center';c.textBaseline='middle';
         c.fillText(icons[this.type]||'?',0,0);
@@ -417,17 +419,17 @@ class Powerup{
     }
 }
 
-/* ═══════════ GAME ═══════════ */
-class Game{
+/* ═══════════ GAME ENGINE ═══════════ */
+class Game {
     constructor(){
-        this.audio=new AudioEngine();
-        this.state='menu';
-        this.particles=[];this.obstacles=[];this.powerups=[];this.smoke=[];
-        this.lb=JSON.parse(localStorage.getItem('wfLB2')||'[]');
+        this.audio = new AudioEngine();
+        this.state = 'menu';
+        this.particles = []; this.obstacles = []; this.powerups = []; this.smoke = [];
+        this.lb = JSON.parse(localStorage.getItem('wfLB2')||'[]');
         this._renderLB();
-        this._bg=this._initBG();
-        this._notifTimer=null;
-        this._raf=null;
+        this._bg = this._initBG();
+        this._notifTimer = null;
+        this._raf = null;
         this._render();
         this._bindControls();
     }
@@ -441,33 +443,50 @@ class Game{
     }
 
     start(){
-        document.getElementById('overlay').style.display='none';
-        this.name=document.getElementById('nameIn').value.trim()||'مجهول';
-        const L=lanes();
-        this.bikeY=L[Math.floor(L.length/2)];
-        this.targetY=this.bikeY;
-        this.hp=3;this.score=0;this.orders=0;this.fuel=100;
-        this.invincible=0;this.shield=false;this.turbo=false;
-        this.turboCd=0;this.shieldCd=0;
-        this.frame=0;this.time=0;this.diff=1;this.spd=W*0.007;
-        this.obstacles=[];this.powerups=[];this.particles=[];this.smoke=[];
-        this.state='play';
+        // التفعيل الإجباري للصوت عند الضغط 
+        this.audio.unlock();
+        
+        document.getElementById('overlay').style.display = 'none';
+        this.name = document.getElementById('nameIn').value.trim() || 'مجهول';
+        
+        const L = lanes();
+        this.bikeY = L[Math.floor(L.length/2)];
+        this.targetY = this.bikeY;
+        this.hp = 3; this.score = 0; this.orders = 0; this.fuel = 100;
+        this.invincible = 0; this.shield = false; this.turbo = false;
+        this.turboCd = 0; this.shieldCd = 0;
+        this.frame = 0; this.time = 0; this.diff = 1; 
+        
+        // السرعة زادت هنا
+        this.spd = W * 0.01; 
+        
+        this.obstacles = []; this.powerups = []; this.particles = []; this.smoke = [];
+        this.state = 'play';
+        
+        // تشغيل محرك الصوت
         this.audio.startEngine();
         this.audio.startAmbient();
+        
         this._schedNotif();
         this._updateHUD();
-        if(this._raf)cancelAnimationFrame(this._raf);
-        const loop=()=>{if(this.state!=='play')return;this._update();this._render();this._raf=requestAnimationFrame(loop);};
+        
+        if(this._raf) cancelAnimationFrame(this._raf);
+        const loop = () => { if(this.state !== 'play') return; this._update(); this._render(); this._raf = requestAnimationFrame(loop); };
         loop();
     }
 
-    toggleSound(){this.audio.toggle();}
+    toggleSound(){ this.audio.toggle(); }
+
+    _shake(){
+        const b = document.getElementById('gr');
+        b.classList.add('shake');
+        setTimeout(()=>b.classList.replace('shake','shake2'), 50);
+        setTimeout(()=>b.classList.remove('shake2'), 100);
+    }
 
     _bindControls(){
-        // دعم اللمس المحسن
         const btnUp = document.getElementById('btnUp');
         const btnDown = document.getElementById('btnDown');
-        
         const moveUp = (e) => { e.preventDefault(); if(this.state==='play')this._moveLane(-1); };
         const moveDown = (e) => { e.preventDefault(); if(this.state==='play')this._moveLane(1); };
 
@@ -478,7 +497,7 @@ class Game{
 
         let ty0=0;
         cv.addEventListener('touchstart',e=>{ty0=e.touches[0].clientY;},{passive:true});
-        cv.addEventListener('touchmove', e=>{ e.preventDefault(); }, {passive:false}); // منع سحب الشاشة
+        cv.addEventListener('touchmove', e=>{ e.preventDefault(); }, {passive:false});
         cv.addEventListener('touchend',e=>{
             if(this.state!=='play')return;
             const dy=e.changedTouches[0].clientY-ty0;
@@ -501,15 +520,21 @@ class Game{
     }
 
     _update(){
-        this.frame++;this.time+=1/60;
-        this.diff=1+Math.floor(this.time/15); // تبطيء زيادة الصعوبة قليلاً
-        const baseSpd=W*0.007+this.time*W*0.00004+(this.turbo?W*0.006:0);
-        this.spd=baseSpd;
-        this.bikeY+=(this.targetY-this.bikeY)*0.15; // حركة أسرع للاستجابة
+        this.frame++; this.time+=1/60;
+        this.diff = 1 + Math.floor(this.time/10); // الصعوبة تزيد أسرع قليلاً
+        
+        // السرعة أصبحت أعلى والتوربو يعطي دفعة أكبر
+        const baseSpd = W*0.01 + this.time*W*0.00007 + (this.turbo?W*0.009:0);
+        this.spd = baseSpd;
+        
+        // انتقال أسرع بين المسارات (0.25 بدلاً من 0.15)
+        this.bikeY += (this.targetY - this.bikeY) * 0.25; 
+        
         if(this.invincible>0)this.invincible--;
         if(this.turboCd>0){this.turboCd--;if(!this.turboCd)this.turbo=false;}
         if(this.shieldCd>0){this.shieldCd--;if(!this.shieldCd)this.shield=false;}
-        this.fuel=Math.max(0,this.fuel-0.020*(1+this.diff*0.05));
+        this.fuel=Math.max(0,this.fuel-0.025*(1+this.diff*0.05));
+        
         if(this.fuel<=0){this.fuel=0;this._damage(this.bikeX,this.bikeY);this._notif('نفد الوقود!');}
         if(this.frame%30===0){this.score+=this.diff;this._updateHUD();}
         
@@ -518,12 +543,12 @@ class Game{
         for(let c of this._bg.clouds){c.x-=s*0.1;if(c.x<-W*0.22)c.x=W+50;}
         for(let r of this._bg.stripes){r.x-=s;if(r.x<-W*0.12)r.x=W+5;}
         
-        const spawnR=Math.max(46-this.diff*3,22);
+        // العوائق تظهر بشكل أسرع يتناسب مع السرعة الجديدة
+        const spawnR=Math.max(30-this.diff*2, 16);
         if(this.frame%spawnR===0)this._spawnOb();
-        const puR=Math.max(190-this.diff*5,100);
+        const puR=Math.max(160-this.diff*4, 90);
         if(this.frame%puR===0)this._spawnPu();
         
-        const L=lanes();
         for(let ob of this.obstacles){
             ob.update(s);
             if(!ob.warned&&ob.x<this.bikeX+W*0.45&&ob.x>this.bikeX+W*0.1){ob.warned=true;this.audio.warn();}
@@ -537,8 +562,16 @@ class Game{
             for(let i=this.obstacles.length-1;i>=0;i--){
                 const ob=this.obstacles[i];
                 if(Math.abs(ob.x-this.bikeX)<hitW&&Math.abs(ob.y-this.bikeY)<hitH){
-                    if(this.shield){this.shield=false;this.shieldCd=0;this.obstacles.splice(i,1);for(let j=0;j<16;j++)this.particles.push(new Particle(ob.x,ob.y,'#4488ff'));this._notif('الدرع وقاك!');}
-                    else{this.audio.boom();this._damage(ob.x,ob.y);this.obstacles.splice(i,1);}
+                    if(this.shield){
+                        this.shield=false;this.shieldCd=0;this.obstacles.splice(i,1);
+                        for(let j=0;j<16;j++)this.particles.push(new Particle(ob.x,ob.y,'#4488ff'));
+                        this.audio.boom(); // نستخدم صوت الانفجار لكسر الدرع
+                        this._notif('الدرع وقاك!');
+                    } else {
+                        this.audio.boom(); 
+                        this._damage(ob.x,ob.y);
+                        this.obstacles.splice(i,1);
+                    }
                 }
             }
         }
@@ -546,12 +579,13 @@ class Game{
             const pu=this.powerups[i];
             if(Math.abs(pu.x-this.bikeX)<W*0.07&&Math.abs(pu.y-this.bikeY)<H*0.05){this._collect(pu);this.powerups.splice(i,1);}
         }
-        if(this.frame%3===0){
-            this.smoke.push({x:this.bikeX-W*0.075,y:this.bikeY+H*0.018,r:W*0.012+Math.random()*W*0.008,life:26,vx:-1.2-Math.random()*0.5,vy:(Math.random()-0.5)*0.6,col:this.turbo?'#00aaff':'rgba(80,130,200,0.3)'});
+        if(this.frame%2===0){ // دخان أكثر بسبب السرعة
+            this.smoke.push({x:this.bikeX-W*0.075,y:this.bikeY+H*0.018,r:W*0.012+Math.random()*W*0.008,life:20,vx:-1.5-Math.random()*0.8,vy:(Math.random()-0.5)*0.6,col:this.turbo?'#00ffff':'rgba(80,130,200,0.4)'});
         }
-        this.smoke=this.smoke.filter(p=>{p.x+=p.vx*(s/3);p.y+=p.vy;p.r*=0.93;p.life--;return p.life>0;});
+        this.smoke=this.smoke.filter(p=>{p.x+=p.vx*(s/4);p.y+=p.vy;p.r*=0.93;p.life--;return p.life>0;});
         for(let p of this.particles)p.update();
         this.particles=this.particles.filter(p=>p.life>0);
+        
         this.audio.setEngineSpeed(s/(W*0.015));
     }
 
@@ -576,20 +610,22 @@ class Game{
 
     _damage(ox,oy){
         this.hp--;this.invincible=90;
-        for(let i=0;i<25;i++)this.particles.push(new Particle(ox,oy,'#ff3300'));
+        this._shake(); // اهتزاز الشاشة
+        for(let i=0;i<30;i++)this.particles.push(new Particle(ox,oy,'#ff2200'));
         this._updateHUD();
         if(this.hp<=0)this._end();
         else this._notif(['اصطدمت! ركز!','انتبه يا ريس!','آي والله!'][Math.floor(Math.random()*3)]);
     }
+    
     _collect(pu){
         if(pu.type==='fuel'){this.audio.fuel();}else{this.audio.ding();}
-        const m={order:'تم استلام الطلب! +120',fuel:'تفول البنزين! انطلق',shield:'الدرع مفعّل!',turbo:'تُرْبُو! سبع والله'};
+        const m={order:'تم استلام الطلب! +150',fuel:'تفول البنزين! انطلق',shield:'الدرع مفعّل!',turbo:'تُرْبُو! سبع والله'};
         this._notif(m[pu.type]);
-        if(pu.type==='order'){this.orders++;this.score+=120;}
-        else if(pu.type==='fuel'){this.fuel=Math.min(100,this.fuel+45);}
-        else if(pu.type==='shield'){this.shield=true;this.shieldCd=260;}
-        else if(pu.type==='turbo'){this.turbo=true;this.turboCd=200;}
-        for(let i=0;i<15;i++)this.particles.push(new Particle(pu.x,pu.y,'#00ffff'));
+        if(pu.type==='order'){this.orders++;this.score+=150;}
+        else if(pu.type==='fuel'){this.fuel=Math.min(100,this.fuel+50);}
+        else if(pu.type==='shield'){this.shield=true;this.shieldCd=300;}
+        else if(pu.type==='turbo'){this.turbo=true;this.turboCd=250;}
+        for(let i=0;i<20;i++)this.particles.push(new Particle(pu.x,pu.y,'#00ffcc'));
         this._updateHUD();
     }
 
@@ -606,19 +642,20 @@ class Game{
         const n=document.getElementById('notif');
         n.textContent=msg;n.classList.add('show');
         clearTimeout(this._notifTimer);
-        this._notifTimer=setTimeout(()=>n.classList.remove('show'),2200);
+        this._notifTimer=setTimeout(()=>n.classList.remove('show'),2000);
     }
+    
     _schedNotif(){
         if(this.state!=='play')return;
-        const msgs=['طلب جديد من الفلوجة!','جاري مزامنة الموقع...','العميل ينتظر يا بطل!','الواثق ما يتأخر!','حي النزال يطلب!'];
-        setTimeout(()=>{if(this.state==='play'){this._notif(msgs[Math.floor(Math.random()*msgs.length)]);this._schedNotif();}},6000+Math.random()*6000);
+        const msgs=['طلب جديد من حي النزال!','جاري مزامنة الموقع...','العميل ينتظر يا بطل!','الواثق ما يتأخر!','الشارع العام يطلب!'];
+        setTimeout(()=>{if(this.state==='play'){this._notif(msgs[Math.floor(Math.random()*msgs.length)]);this._schedNotif();}},5000+Math.random()*5000);
     }
 
     _end(){
         this.state='over';
         cancelAnimationFrame(this._raf);
         this.audio.stopEngine();this.audio.stopAmbient();
-        const stars=this.orders>=8?3:this.orders>=4?2:this.orders>=1?1:0;
+        const stars=this.orders>=10?3:this.orders>=5?2:this.orders>=1?1:0;
         this.lb.push({name:this.name,score:this.score,orders:this.orders});
         this.lb.sort((a,b)=>b.score-a.score);
         this.lb=this.lb.slice(0,5);
@@ -708,7 +745,7 @@ class Game{
     }
     _drawSmoke(){
         for(let p of this.smoke){
-            ctx.save();ctx.globalAlpha=p.life/26*0.5;ctx.fillStyle=p.col;
+            ctx.save();ctx.globalAlpha=p.life/20*0.5;ctx.fillStyle=p.col;
             ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();ctx.restore();
         }
     }
@@ -720,54 +757,47 @@ class Game{
         
         ctx.save();ctx.translate(x,y);
 
-        // توهج سينمائي للدراجة (HD Vibe)
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = this.turbo ? 'rgba(255,200,0,0.8)' : 'rgba(0,180,255,0.6)';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = this.turbo ? 'rgba(255,200,0,0.9)' : 'rgba(0,180,255,0.7)';
 
         if(this.shield){
             ctx.strokeStyle='rgba(0,180,255,0.8)';ctx.lineWidth=3*sc;
             ctx.shadowBlur = 20; ctx.shadowColor = 'rgba(0,150,255,0.9)';
             ctx.beginPath();ctx.ellipse(0,0,45*sc,30*sc,0,0,Math.PI*2);ctx.stroke();
-            ctx.shadowBlur = 12; // إعادة للتوهج الطبيعي
+            ctx.shadowBlur = 15;
         }
         const f=this.frame;
         
-        /* عجلات (تم إصلاح خطأ الناقص هنا) */
         ctx.fillStyle='#040c1c';ctx.strokeStyle='rgba(0,150,255,0.9)';ctx.lineWidth=2.5*sc;
         [[-18,16],[18,16]].forEach(([wx,wy])=>{
             ctx.beginPath();ctx.arc(wx*sc,wy*sc,11*sc,0,Math.PI*2);ctx.fill();ctx.stroke();
             ctx.strokeStyle='rgba(0,120,255,0.5)';ctx.lineWidth=sc;
             for(let a=0;a<Math.PI*2;a+=Math.PI/4){
                 ctx.beginPath();ctx.moveTo(wx*sc,wy*sc);
-                ctx.lineTo(wx*sc+8*sc*Math.cos(a+(wx>0?-1:1)*f*0.14),wy*sc+8*sc*Math.sin(a+(wx>0?-1:1)*f*0.14));
+                ctx.lineTo(wx*sc+8*sc*Math.cos(a+(wx>0?-1:1)*f*0.2),wy*sc+8*sc*Math.sin(a+(wx>0?-1:1)*f*0.2));
                 ctx.stroke();
             }
             ctx.strokeStyle='rgba(0,150,255,0.9)';ctx.lineWidth=2.5*sc;
         });
         
-        /* هيكل */
         ctx.strokeStyle='rgba(0,160,255,1)';ctx.lineWidth=4*sc;
         ctx.beginPath();ctx.moveTo(-18*sc,16*sc);ctx.lineTo(0,-5*sc);ctx.lineTo(18*sc,16*sc);ctx.stroke();
         ctx.beginPath();ctx.moveTo(0,-5*sc);ctx.lineTo(-8*sc,-20*sc);ctx.stroke();
         
-        /* محرك */
         ctx.fillStyle='#061026';ctx.beginPath();ctx.roundRect(-11*sc,-8*sc,22*sc,17*sc,4*sc);ctx.fill();
         ctx.fillStyle='rgba(0,120,255,0.8)';ctx.beginPath();ctx.roundRect(-8*sc,-6*sc,16*sc,11*sc,3*sc);ctx.fill();
         
-        /* مقود */
         ctx.strokeStyle='rgba(0,200,255,0.8)';ctx.lineWidth=3*sc;
         ctx.beginPath();ctx.moveTo(14*sc,-18*sc);ctx.lineTo(26*sc,-14*sc);ctx.stroke();
         
-        /* صندوق التوصيل */
         ctx.fillStyle='#081430';ctx.beginPath();ctx.roundRect(-10*sc,-33*sc,24*sc,20*sc,4*sc);ctx.fill();
         ctx.strokeStyle='rgba(0,150,255,0.8)';ctx.lineWidth=1.5*sc;ctx.strokeRect(-10*sc,-33*sc,24*sc,20*sc);
         ctx.fillStyle='rgba(255,255,255,0.9)';ctx.font=`bold ${8*sc}px Arial`;ctx.textAlign='center';ctx.fillText('واثق',2*sc,-19*sc);
         
-        /* المندوب */
-        ctx.shadowBlur = 0; // إيقاف التوهج للمندوب
+        ctx.shadowBlur = 0;
         ctx.fillStyle='#e0ac69';ctx.beginPath();ctx.ellipse(4*sc,-38*sc,7*sc,7*sc,0,0,Math.PI*2);ctx.fill();
-        ctx.fillStyle='#030a1a';ctx.beginPath();ctx.roundRect(-5*sc,-48*sc,17*sc,13*sc,4*sc);ctx.fill(); // خوذة
-        ctx.fillStyle='rgba(0,200,255,0.6)';ctx.fillRect(-1*sc,-45*sc,10*sc,5*sc); // زجاج الخوذة
+        ctx.fillStyle='#030a1a';ctx.beginPath();ctx.roundRect(-5*sc,-48*sc,17*sc,13*sc,4*sc);ctx.fill();
+        ctx.fillStyle='rgba(0,200,255,0.6)';ctx.fillRect(-1*sc,-45*sc,10*sc,5*sc);
         
         ctx.restore();
         ctx.globalAlpha=1;
